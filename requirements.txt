@@ -1,0 +1,7 @@
+# ast-lens emitter runtime deps — canonical tree-sitter + per-language grammars
+# (standard, well-documented Node API; one wheel per language, all vendored).
+tree-sitter>=0.23,<0.26
+tree-sitter-go>=0.23
+tree-sitter-python>=0.23
+tree-sitter-javascript>=0.23
+tree-sitter-typescript>=0.23
