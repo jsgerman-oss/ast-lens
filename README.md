@@ -1,86 +1,184 @@
-# ast-lens
+<div align="center">
 
-**Outline-first reading for Gas City agents.** A self-contained gc pack that lets
-LLM agents read a compact Markdown *structural outline* of a source file instead
-of consuming the whole file — cutting the "read tax" by ~75–98% on large files.
+# `ast-lens`
 
-Clean-room implementation of the read side of *"The AST as LLM Lens"*
-([blackrim-ast-paper](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)),
-built straight from the paper's §5 algorithm + appendix. It does **not** import or
-depend on Blackrim's `gt`.
+### Outline-first reading for Gas City agents
+
+Agents read a compact AST **outline** of a source file instead of the whole thing —
+**~94–98% fewer tokens** on large files, with a line-anchored path back to any body
+when they actually need one. A clean-room implementation of the read side of
+*[The AST as LLM Lens](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)*.
+
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Gas City](https://img.shields.io/badge/Gas_City-pack-0f766e?style=flat-square)]()
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)]()
+[![Lens](https://img.shields.io/badge/lens-Go_Python_TS_JS-444?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-156_passing-brightgreen?style=flat-square)]()
+[![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen?style=flat-square)]()
+[![Token savings](https://img.shields.io/badge/savings-94--98%25-0f766e?style=flat-square)]()
+
+[**Quick start**](#quick-start) ·
+[**How it works**](#how-it-works) ·
+[**The emitter**](#the-emitter) ·
+[**Install**](#install--uninstall) ·
+[**Config**](#configuration) ·
+[**Docs**](#documentation) ·
+[**Tests**](#tests) ·
+[**Lineage**](#research-lineage)
+
+</div>
+
+---
+
+## The read tax
+
+An LLM agent mapping a codebase will `Read` dozens of files before answering a single
+question. At ~10 tokens per source line, a 2,700-line file is ~27,000 input tokens —
+and most of that is *function bodies the agent never needed to answer a structural
+question.* **ast-lens** interposes the abstract syntax tree: it emits a ~300-token
+Markdown **outline** of a file's declarations, types, and signatures — each anchored
+to its line span — so the agent navigates by structure and fetches a body only when
+it has to.
+
+```markdown
+# picks.ts (565 LoC, 15 decls)
+
+> Barrel-pick catalogue — single source of truth for the marketing site.
+
+## Types
+- `interface BarrelPick` (L55–92)
+- `interface DropsByEra` (L95–99)
+
+## Functions
+- `function getPick(slug: string): BarrelPick | undefined` (L496–498)
+- `function dropsByEra(distillerySlug: string, now: Date): DropsByEra` (L539–564)
+```
+
+> _565 lines → a handful. The agent reads this, then `Read offset:496 limit:3` for the
+> one body it wants._
+
+## Measured savings
+
+Real files, full `Read` vs. outline (≈4 chars/token):
+
+| File | Lang | LoC | Full → outline | Saved |
+|------|:----:|----:|---------------:|------:|
+| `picks.ts` | TS | 564 | 5,511 → 302 tok | **94.5%** |
+| `postgresRepo.ts` | TS | 511 | 4,877 → 270 tok | **94.5%** |
+| `walker_go.go` | Go | 457 | 3,133 → 79 tok | **97.5%** |
+| `test_main_endpoints.py` | Py | 1,420 | 13,607 → 803 tok | **94.1%** |
+
+_Public-API-heavy files compress less (~90%) because the outline never drops a public
+declaration — see [Caveats](#caveats)._
 
 ## What's in the box
 
-| Layer | File | Paper § |
-|-------|------|---------|
-| **Emitter** | `bin/outline` → `bin/outline.py` | §5, App B/C/D |
-| **Skill** (agent-facing) | `skills/read-with-outline/SKILL.md` | §4.2 |
-| **Prompt fragment** (system-prompt discipline) | `template-fragments/read-with-outline.template.md` | §4.3 |
-| **PreToolUse hook** (auto-prepend on `Read`) | `overlay/per-provider/claude/.claude/settings.json` + `hooks/outline-on-read.sh` | §4.1 |
-| **Tests** | `tests/` (44, behavioral) | §5.3/§5.4 contracts |
+| Layer | What it is | File | Paper § |
+|-------|------------|------|:-------:|
+| **Emitter** | the outline function (Go/Py/TS/JS) | `bin/outline` → `bin/outline.py` | §5 · App B/C/D |
+| **Skill** | teaches agents to outline-before-`Read` | `skills/read-with-outline/SKILL.md` | §4.2 |
+| **Prompt fragment** | the discipline, in every agent's context | `template-fragments/read-with-outline.template.md` | §4.3 |
+| **PreToolUse hook** | auto-prepends the outline to a `Read` | `overlay/…/settings.json` + `hooks/outline-on-read.sh` | §4.1 |
+| **Tests** | 156 behavioral, 98% coverage | `tests/` | §5.3 · §5.4 |
 
-These are the paper's "one emitter, three surfaces" plus the three discipline
-layers (hook, skill, CLAUDE.md instruction).
+This is the paper's _one emitter, three surfaces_ (CLI, hook, skill) plus the
+system-prompt discipline layer.
 
-## The emitter
-
-`bin/outline <file>` prints a Markdown outline: header (`# name (LoC, N decls)`),
-sanitised package doc, imports, types, and functions — every declaration carrying
-an `L<start>–<end>` anchor so an agent can `Read offset/limit` a specific body.
-Supports **Go, Python, TypeScript, JavaScript** (canonical `tree-sitter` + per-grammar
-packages). It is a pure, stateless, read-only function and degrades to **empty
-output (passthrough)** for files < 200 LoC, unsupported types, an `outline:skip`
-comment, a missing parser, or any parse error — so it can never break a `Read`.
-
-Measured on real files: **94–98% token savings** (TS/Go/Python, 450–1400 LoC).
+## Quick start
 
 ```bash
-./setup.sh                       # one-time: build the venv (tree-sitter + grammars)
-./bin/outline path/to/file.ts    # Markdown outline (silent if < 200 LoC)
-./bin/outline --format json f.go
+./setup.sh                           # one-time: build the venv (tree-sitter + grammars)
+./bin/outline path/to/file.ts        # print the Markdown outline (silent if < 200 LoC)
+./bin/outline --format json file.go  # machine-readable
 ```
 
-Config (env or flags): `--budget` (default 300 tokens), `--threshold` (default 200 LoC).
+## How it works
 
-## Install & wire into a city
+`outline(file)` is a pure, stateless, read-only function:
+
+1. **Detect** the language by extension; **parse** with canonical `tree-sitter`.
+2. **Extract** top-level declarations, significant nested constructs, imports, and the
+   sanitised package doc.
+3. **Render** the line-anchored Markdown schema.
+4. **Truncate** to a ~300-token budget by a normative precedence — private internals
+   first, then public-function internals, then private declarations collapse to a count.
+
+It degrades to **empty output (passthrough)** for files under 200 LoC, unsupported
+languages, an `outline:skip` comment, a missing parser, or any parse error — so it can
+**never break a `Read`**. Verbatim file text surfaced by the lens runs through a
+prompt-injection **sanitiser**: the outline auto-prepends to a `Read`, so untrusted
+vendored code can't smuggle instructions into agent context.
+
+## Install & uninstall
+
+Turn it on for **one rig** or the **whole town**, reversibly:
 
 ```bash
-# 1. Vendor or import the pack, then build the emitter venv:
-packs/ast-lens/setup.sh
+./setup.sh                        # build the emitter venv (one-time)
 
-# 2. Import it in city.toml (or `gc import add ./packs/ast-lens`):
-#    [imports.ast-lens]
-#    source = "./packs/ast-lens"
+./install.sh --rig whiskeyshop    # one rig: skill + PreToolUse hook for its agents
+./install.sh --town               # city-wide: + opts the discipline fragment into every agent
 
-# 3. (recommended) opt the discipline fragment into every agent prompt:
-#    global_fragments = [ ..., "read-with-outline" ]
+./uninstall.sh --rig whiskeyshop  # clean reversal (strips the merged hook too)
+./uninstall.sh --town --purge     # …and drop the venv
 ```
 
-The `read-with-outline` skill and the Claude `PreToolUse` overlay are picked up by
-convention — gc deep-merges the overlay's hooks into the projected Claude settings
-(it does not overwrite the core hooks).
+Both are idempotent, back up any config they touch, and support `--dry-run`. The pack
+imports via a direct `source = "packs/ast-lens"` entry (the gas-town convention); gc
+**deep-merges** the Claude `PreToolUse` hook into projected settings without clobbering
+the core hooks. Full lifecycle: [`docs/INSTALL.md`](docs/INSTALL.md).
 
-**Escape hatches:** `BLACKRIM_DISABLE_OUTLINE_HOOK=1` disables the hook; `outline:skip`
-in a file's first lines skips that file; `--threshold` raises the LoC floor.
+## Configuration
 
-## Caveats (honest)
+| Knob | Default | Set via |
+|------|:-------:|---------|
+| Token budget | `300` | `--budget`, `AST_LENS_BUDGET` |
+| LoC threshold | `200` | `--threshold`, `AST_LENS_THRESHOLD` |
+| Output format | `md` | `--format md\|json` |
+| Skip a file | — | `// outline:skip` in its first lines |
+| Disable the hook | — | `BLACKRIM_DISABLE_OUTLINE_HOOK=1` |
 
-- **Token budget (300) is a soft target.** Public-heavy files (e.g. a 51-class test
-  file) exceed it — the truncation precedence (§5.3) never drops *public* top-level
-  decls. This matches the paper's "conformance is an empirical claim."
-- **Activation is deliberate.** The PreToolUse hook fires on *every* `Read` once
-  enabled. Validate the overlay materialization path (`$CLAUDE_PROJECT_DIR/packs/ast-lens/...`)
-  on a scratch city / single rig before enabling town-wide — see
-  `docs/hook-projection-findings.md`.
-- **Block-mode not implemented.** Warn-mode only (the paper's 80%-adoption → block
-  escalation is future work).
-- Multi-line signatures truncate to their first line; the significance pass is light.
+Full reference: [`docs/CONFIG.md`](docs/CONFIG.md).
+
+## Documentation
+
+| Doc | |
+|-----|-|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | the one-emitter / three-surfaces design + data flow |
+| [`docs/ALGORITHM.md`](docs/ALGORITHM.md) | the emitter mapped to the paper (Alg 1, §5.3, §5.4, App C) |
+| [`docs/REFERENCE.md`](docs/REFERENCE.md) | every function + constant in `outline.py` |
+| [`docs/CONFIG.md`](docs/CONFIG.md) | every configuration knob |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | install / uninstall, per rig & town |
+| [`docs/hook-projection-findings.md`](docs/hook-projection-findings.md) | how the Claude hook merges into gc |
+
+## Caveats
+
+- **The token budget is a soft target.** Public-heavy files exceed it — the truncation
+  precedence never drops _public_ top-level declarations (they're the signal). This
+  matches the paper's "conformance is an empirical claim."
+- **Activation is deliberate.** The PreToolUse hook fires on _every_ `Read` once
+  enabled; prefer a single rig first.
+- **Warn-mode only.** The paper's 80%-adoption → block-mode escalation is future work.
+- Multi-line signatures collapse to their first line; the significance pass is light.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q     # 44 behavioral tests
+tests/run.sh        # 156 tests + branch coverage, gated at 90% (ruff clean)
 ```
 
-They validate the paper's *contracts* (passthrough, schema shape, line-span anchors,
-public/private, sanitisation, compression) — not byte-equality with any other tool.
+They assert the paper's **contracts** — passthrough, schema shape, line-span anchors,
+public/private, every sanitisation pattern, the truncation precedence, compression —
+not byte-equality with any other tool.
+
+## Research lineage
+
+ast-lens is a clean-room build of the read side of **_[The AST as LLM Lens: Outline-First
+Reading and Compile-Gated Symbolic Surgery](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)_**,
+implemented from the paper's §5 algorithm and appendix — not ported from the reference
+`gt`. The write side (compile-gated symbolic surgery) lives in the paper but not yet in
+this pack.
+
+## License
+
+MIT © Jay German. See [LICENSE](LICENSE).
