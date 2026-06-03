@@ -43,15 +43,15 @@ it has to.
 ```markdown
 # picks.ts (565 LoC, 15 decls)
 
-> Barrel-pick catalogue — single source of truth for the marketing site.
+> Pick catalogue — single source of truth for the marketing site.
 
 ## Types
-- `interface BarrelPick` (L55–92)
-- `interface DropsByEra` (L95–99)
+- `interface PointPick` (L55–92)
+- `interface PicksByEra` (L95–99)
 
 ## Functions
 - `function getPick(slug: string): BarrelPick | undefined` (L496–498)
-- `function dropsByEra(distillerySlug: string, now: Date): DropsByEra` (L539–564)
+- `function dropsByEra(pickSlug: string, now: Date): picksByEra` (L539–564)
 ```
 
 > _565 lines → a handful. The agent reads this, then `Read offset:496 limit:3` for the
@@ -116,10 +116,10 @@ Turn it on for **one rig** or the **whole town**, reversibly:
 ```bash
 ./setup.sh                        # build the emitter venv (one-time)
 
-./install.sh --rig whiskeyshop    # one rig: skill + PreToolUse hook for its agents
+./install.sh --rig pickshop    # one rig: skill + PreToolUse hook for its agents
 ./install.sh --town               # city-wide: + opts the discipline fragment into every agent
 
-./uninstall.sh --rig whiskeyshop  # clean reversal (strips the merged hook too)
+./uninstall.sh --rig pickshop  # clean reversal (strips the merged hook too)
 ./uninstall.sh --town --purge     # …and drop the venv
 ```
 
