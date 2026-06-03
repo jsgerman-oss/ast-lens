@@ -214,14 +214,23 @@ validation steps) is in
 | Hook script (Surface 3) | `hooks/outline-on-read.sh` | PreToolUse → run emitter → inject `additionalContext` | §4.B(1) |
 | Hook wiring | `overlay/per-provider/claude/.claude/settings.json` | `PreToolUse`/`Read` entry, deep-merged by gc | §4.1 |
 | Pack manifest | `pack.toml` | `[pack]` name/schema/version; wiring notes | — |
-| Tests | `tests/test_outline.py`, `tests/fixtures/` | 44 behavioral tests against paper contracts | §5.3/§5.4 |
+| Tests | `tests/` | 156 read-side + write-side behavioral tests against paper contracts | §5.3/§5.4 |
 | Docs | `docs/` | this set + `hook-projection-findings.md` | — |
 
-### What the pack does *not* contain
-ast-lens is the paper's read side only. The write-side subsystems — plan/execute
-pairs (§4.C), compound symbolic ops `fix-imports`/`extract-to-package`/
-`rename-cross-file` (§4.D), the compile gate (§5.6), and the pattern-DSL (§4.E) —
-are **out of scope** and not implemented here.
+### Write side — implemented (phase 2)
+The write-side subsystems are implemented under `astlens/` — see
+[WRITE-SIDE.md](WRITE-SIDE.md). The **compile gate** (§5.6, false-negative-only: it
+rejects any change it can't prove syntactically safe), the stateless content-addressed
+**plan/execute pair** contract (§4.C / §5.5), and three compound symbolic ops (§4.D),
+driven by `bin/op`:
+
+| Op | Scope | Backed by |
+|----|-------|-----------|
+| `fix-imports` | Go + Python | `goimports` / `ruff` |
+| `rename-symbol` | Go (cross-file, compile-aware) | `gopls` rename |
+| `extract-to-package` | Go (exported decl, conservative) | `tree-sitter-go` + `gofmt` |
+
+Still out of scope: the YAML **pattern-DSL** (§4.E) — the paper itself defers it.
 
 ---
 

@@ -2,24 +2,26 @@
 
 # `ast-lens`
 
-### Outline-first reading for Gas City agents
+### AST-native reading & editing for Gas City agents
 
-Agents read a compact AST **outline** of a source file instead of the whole thing —
-**~94–98% fewer tokens** on large files, with a line-anchored path back to any body
-when they actually need one. A clean-room implementation of the read side of
+Agents **read** a compact AST outline instead of whole files (**~94–98% fewer tokens**),
+and **edit** through compile-gated symbolic ops that can't commit a change the gate can't
+prove safe. A clean-room implementation of
 *[The AST as LLM Lens](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)*.
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Gas City](https://img.shields.io/badge/Gas_City-pack-0f766e?style=flat-square)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)]()
 [![Lens](https://img.shields.io/badge/lens-Go_Python_TS_JS-444?style=flat-square)]()
-[![Tests](https://img.shields.io/badge/tests-156_passing-brightgreen?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-240_passing-brightgreen?style=flat-square)]()
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen?style=flat-square)]()
 [![Token savings](https://img.shields.io/badge/savings-94--98%25-0f766e?style=flat-square)]()
+[![Edits](https://img.shields.io/badge/edits-compile--gated-c2410c?style=flat-square)]()
 
 [**Quick start**](#quick-start) ·
 [**How it works**](#how-it-works) ·
 [**The emitter**](#the-emitter) ·
+[**Write side**](#write-side) ·
 [**Install**](#install--uninstall) ·
 [**Config**](#configuration) ·
 [**Docs**](#documentation) ·
@@ -79,10 +81,11 @@ declaration — see [Caveats](#caveats)._
 | **Skill** | teaches agents to outline-before-`Read` | `skills/read-with-outline/SKILL.md` | §4.2 |
 | **Prompt fragment** | the discipline, in every agent's context | `template-fragments/read-with-outline.template.md` | §4.3 |
 | **PreToolUse hook** | auto-prepends the outline to a `Read` | `overlay/…/settings.json` + `hooks/outline-on-read.sh` | §4.1 |
-| **Tests** | 156 behavioral, 98% coverage | `tests/` | §5.3 · §5.4 |
+| **Write side** | compile gate + plan/execute + 3 symbolic ops | `astlens/`, `bin/op` | §5.5 · §5.6 · §4.D |
+| **Tests** | 240 behavioral (read + write side) | `tests/` | §5.3 · §5.4 |
 
-This is the paper's _one emitter, three surfaces_ (CLI, hook, skill) plus the
-system-prompt discipline layer.
+This is the paper's read side (_one emitter, three surfaces_ + the system-prompt
+discipline) **and** its write side (compile-gated plan/execute symbolic surgery).
 
 ## Quick start
 
@@ -108,6 +111,38 @@ languages, an `outline:skip` comment, a missing parser, or any parse error — s
 **never break a `Read`**. Verbatim file text surfaced by the lens runs through a
 prompt-injection **sanitiser**: the outline auto-prepends to a `Read`, so untrusted
 vendored code can't smuggle instructions into agent context.
+
+## Write side
+
+Reading is half the story; the write side lets agents *change* code without silently
+breaking it. The contract is **plan → gate → execute**:
+
+- **`op` emits a plan** — a Markdown description of the proposed edit (target, scope,
+  diff, predicted verdict) plus a content-hash **token**. Read-only.
+- **`op!` executes it** — recomputes the change and writes **only if the compile gate
+  accepts**. The gate is _false-negative-only_: it materialises the change in a temp
+  copy, runs the language's native syntax check, and rejects anything it can't prove
+  safe (no checker ⇒ reject). It never touches the working tree until the verdict is in.
+
+Because plans are stateless and content-addressed, **a plan is a bead payload** — a
+polecat emits it, the refinery runs the gated `op!` later. If the file changed since
+planning, the token mismatches and execute aborts (re-plan).
+
+```bash
+bin/op fix-imports  src/server.go            # plan (read-only)
+bin/op fix-imports! src/server.go <token>    # gated execute
+```
+
+| Op | Scope | Backed by |
+|----|-------|-----------|
+| `fix-imports` | Go + Python | `goimports` / `ruff` |
+| `rename-symbol` | Go, cross-file, **compile-aware** | `gopls` rename |
+| `extract-to-package` | Go, exported decl (conservative) | `tree-sitter-go` + `gofmt` |
+
+`rename-symbol` is type-aware — it renames a package-level `Count` without touching a
+shadowing local of the same name; `extract-to-package` `go build`s its result before
+returning it. The YAML pattern-DSL (§4.E) is the one write-side piece still deferred.
+Full contract: [`docs/WRITE-SIDE.md`](docs/WRITE-SIDE.md).
 
 ## Install & uninstall
 
@@ -146,6 +181,7 @@ Full reference: [`docs/CONFIG.md`](docs/CONFIG.md).
 |-----|-|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | the one-emitter / three-surfaces design + data flow |
 | [`docs/ALGORITHM.md`](docs/ALGORITHM.md) | the emitter mapped to the paper (Alg 1, §5.3, §5.4, App C) |
+| [`docs/WRITE-SIDE.md`](docs/WRITE-SIDE.md) | the compile gate + plan/execute contract + symbolic ops |
 | [`docs/REFERENCE.md`](docs/REFERENCE.md) | every function + constant in `outline.py` |
 | [`docs/CONFIG.md`](docs/CONFIG.md) | every configuration knob |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | install / uninstall, per rig & town |
@@ -164,20 +200,21 @@ Full reference: [`docs/CONFIG.md`](docs/CONFIG.md).
 ## Tests
 
 ```bash
-tests/run.sh        # 156 tests + branch coverage, gated at 90% (ruff clean)
+tests/run.sh        # 240 tests + branch coverage, gated at 90% (ruff clean)
 ```
 
-They assert the paper's **contracts** — passthrough, schema shape, line-span anchors,
-public/private, every sanitisation pattern, the truncation precedence, compression —
-not byte-equality with any other tool.
+They assert the paper's **contracts** — read side (passthrough, schema shape, line-span
+anchors, public/private, every sanitisation pattern, the truncation precedence,
+compression) and write side (gate accept/reject, plan-token drift detection, each op's
+correctness) — not byte-equality with any other tool.
 
 ## Research lineage
 
-ast-lens is a clean-room build of the read side of **_[The AST as LLM Lens: Outline-First
-Reading and Compile-Gated Symbolic Surgery](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)_**,
+ast-lens is a clean-room build of **_[The AST as LLM Lens: Outline-First Reading and
+Compile-Gated Symbolic Surgery](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)_**,
 implemented from the paper's §5 algorithm and appendix — not ported from the reference
-`gt`. The write side (compile-gated symbolic surgery) lives in the paper but not yet in
-this pack.
+`gt`. Both halves are here: outline-first reading **and** compile-gated symbolic surgery.
+The YAML pattern-DSL (§4.E) is the one piece the paper itself defers.
 
 ## License
 
