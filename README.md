@@ -43,17 +43,17 @@ to its line span — so the agent navigates by structure and fetches a body only
 it has to.
 
 ```markdown
-# picks.ts (565 LoC, 15 decls)
+# catalog.ts (565 LoC, 15 decls)
 
-> Pick catalogue — single source of truth for the marketing site.
+> Product catalogue — single source of truth for the storefront.
 
 ## Types
-- `interface PointPick` (L55–92)
-- `interface PicksByEra` (L95–99)
+- `interface Product` (L55–92)
+- `interface CatalogIndex` (L95–99)
 
 ## Functions
-- `function getPick(slug: string): BarrelPick | undefined` (L496–498)
-- `function dropsByEra(pickSlug: string, now: Date): picksByEra` (L539–564)
+- `function getProduct(slug: string): Product | undefined` (L496–498)
+- `function indexByEra(slug: string, now: Date): CatalogIndex` (L539–564)
 ```
 
 > _565 lines → a handful. The agent reads this, then `Read offset:496 limit:3` for the
@@ -65,8 +65,8 @@ Real files, full `Read` vs. outline (≈4 chars/token):
 
 | File | Lang | LoC | Full → outline | Saved |
 |------|:----:|----:|---------------:|------:|
-| `picks.ts` | TS | 564 | 5,511 → 302 tok | **94.5%** |
-| `postgresRepo.ts` | TS | 511 | 4,877 → 270 tok | **94.5%** |
+| `catalog.ts` | TS | 564 | 5,511 → 302 tok | **94.5%** |
+| `repository.ts` | TS | 511 | 4,877 → 270 tok | **94.5%** |
 | `walker_go.go` | Go | 457 | 3,133 → 79 tok | **97.5%** |
 | `test_main_endpoints.py` | Py | 1,420 | 13,607 → 803 tok | **94.1%** |
 
@@ -151,10 +151,10 @@ Turn it on for **one rig** or the **whole town**, reversibly:
 ```bash
 ./setup.sh                        # build the emitter venv (one-time)
 
-./install.sh --rig pickshop    # one rig: skill + PreToolUse hook for its agents
+./install.sh --rig myrig          # one rig: skill + PreToolUse hook for its agents
 ./install.sh --town               # city-wide: + opts the discipline fragment into every agent
 
-./uninstall.sh --rig pickshop  # clean reversal (strips the merged hook too)
+./uninstall.sh --rig myrig        # clean reversal (strips the merged hook too)
 ./uninstall.sh --town --purge     # …and drop the venv
 ```
 
