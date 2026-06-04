@@ -230,7 +230,11 @@ driven by `bin/op`:
 | `rename-symbol` | Go (cross-file, compile-aware) | `gopls` rename |
 | `extract-to-package` | Go (exported decl, conservative) | `tree-sitter-go` + `gofmt` |
 
-Still out of scope: the YAML **pattern-DSL** (§4.E) — the paper itself defers it.
+Also implemented: the YAML **pattern-DSL** (§4.E) — author new ops as YAML intents
+([PATTERN-DSL.md](PATTERN-DSL.md)); the agent-facing **`symbolic-edits`** skill +
+prompt fragment; and **refinery integration** — a plan filed as a bead, applied gated
+through the merge path ([REFINERY-INTEGRATION.md](REFINERY-INTEGRATION.md)). The paper
+had deferred the pattern-DSL; it ships here.
 
 ---
 

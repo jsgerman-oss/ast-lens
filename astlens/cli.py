@@ -69,9 +69,32 @@ def _parse_args(rest: list[str]) -> dict:
 def _cmd_list() -> int:
     avail = _registry.available()
     print("registered ops:")
-    for name in _registry.all_op_names():
-        mark = "available" if avail.get(name) else "MISSING (sibling op not built)"
-        print(f"  {name:<20} {mark}")
+    # Prefer the combined listing (Python ops + pattern-DSL intents) when the
+    # registry exposes it; fall back to the canonical Python-op names otherwise
+    # (keeps the CLI working against an older registry).
+    names = getattr(_registry, "listing_names", _registry.all_op_names)()
+    for name in names:
+        is_intent = getattr(_registry, "is_intent", lambda _n: False)(name)
+        if avail.get(name):
+            mark = "available"
+        elif is_intent:
+            mark = "UNAVAILABLE (intent failed to load)"
+        else:
+            mark = "MISSING (sibling op not built)"
+        # Pattern-DSL intents carry a one-line description; annotate them so the
+        # listing distinguishes a YAML intent from a hand-written Python op.
+        suffix = ""
+        if is_intent:
+            desc = getattr(_registry, "describe", lambda _n: "")(name)
+            suffix = f"  [pattern] {desc}".rstrip()
+        print(f"  {name:<20} {mark}{suffix}")
+    # Surface which pattern-DSL backend is live (paper §4.E two-backend design).
+    try:
+        from . import pattern as _pattern
+
+        print(f"\npattern-DSL backend: {_pattern.active_backend()}")
+    except Exception:  # noqa: BLE001 - engine optional; listing must not fail
+        pass
     return 0
 
 

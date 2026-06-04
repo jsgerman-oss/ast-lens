@@ -13,7 +13,7 @@ prove safe. A clean-room implementation of
 [![Gas City](https://img.shields.io/badge/Gas_City-pack-0f766e?style=flat-square)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)]()
 [![Lens](https://img.shields.io/badge/lens-Go_Python_TS_JS-444?style=flat-square)]()
-[![Tests](https://img.shields.io/badge/tests-240_passing-brightgreen?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-269_passing-brightgreen?style=flat-square)]()
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen?style=flat-square)]()
 [![Token savings](https://img.shields.io/badge/savings-94--98%25-0f766e?style=flat-square)]()
 [![Edits](https://img.shields.io/badge/edits-compile--gated-c2410c?style=flat-square)]()
@@ -81,8 +81,8 @@ declaration — see [Caveats](#caveats)._
 | **Skill** | teaches agents to outline-before-`Read` | `skills/read-with-outline/SKILL.md` | §4.2 |
 | **Prompt fragment** | the discipline, in every agent's context | `template-fragments/read-with-outline.template.md` | §4.3 |
 | **PreToolUse hook** | auto-prepends the outline to a `Read` | `overlay/…/settings.json` + `hooks/outline-on-read.sh` | §4.1 |
-| **Write side** | compile gate + plan/execute + 3 symbolic ops | `astlens/`, `bin/op` | §5.5 · §5.6 · §4.D |
-| **Tests** | 240 behavioral (read + write side) | `tests/` | §5.3 · §5.4 |
+| **Write side** | gate + plan/execute + ops + YAML pattern-DSL + skill | `astlens/`, `bin/op` | §5.5 · §5.6 · §4.D/E |
+| **Tests** | 269 behavioral (read + write side) | `tests/` | §5.3 · §5.4 |
 
 This is the paper's read side (_one emitter, three surfaces_ + the system-prompt
 discipline) **and** its write side (compile-gated plan/execute symbolic surgery).
@@ -141,8 +141,11 @@ bin/op fix-imports! src/server.go <token>    # gated execute
 
 `rename-symbol` is type-aware — it renames a package-level `Count` without touching a
 shadowing local of the same name; `extract-to-package` `go build`s its result before
-returning it. The YAML pattern-DSL (§4.E) is the one write-side piece still deferred.
-Full contract: [`docs/WRITE-SIDE.md`](docs/WRITE-SIDE.md).
+returning it. New ops can be authored as **YAML pattern intents** — `remove-console`,
+`no-var`, … — via the [pattern-DSL](docs/PATTERN-DSL.md); agents reach the write side
+through the **`symbolic-edits` skill**; and a plan can be filed as a **bead** and applied
+gated through the refinery ([details](docs/REFINERY-INTEGRATION.md)). Full contract:
+[`docs/WRITE-SIDE.md`](docs/WRITE-SIDE.md).
 
 ## Install & uninstall
 
@@ -213,8 +216,8 @@ correctness) — not byte-equality with any other tool.
 ast-lens is a clean-room build of **_[The AST as LLM Lens: Outline-First Reading and
 Compile-Gated Symbolic Surgery](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)_**,
 implemented from the paper's §5 algorithm and appendix — not ported from the reference
-`gt`. Both halves are here: outline-first reading **and** compile-gated symbolic surgery.
-The YAML pattern-DSL (§4.E) is the one piece the paper itself defers.
+`gt`. Both halves are here — outline-first reading **and** compile-gated symbolic surgery —
+including the YAML pattern-DSL (§4.E) that the paper itself defers.
 
 ## License
 
