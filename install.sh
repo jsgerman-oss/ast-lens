@@ -5,7 +5,8 @@
 #
 # Turns the ast-lens pack ON at one of two scopes:
 #   --town        city-wide: every agent gets the skill + (opt-in) the
-#                 read-with-outline prompt fragment + the claude PreToolUse hook.
+#                 read-with-outline (read side) and symbolic-edits (write side)
+#                 prompt fragments + the claude PreToolUse hook.
 #   --rig <name>  one rig only: that rig's agents get the skill + hook.
 #
 # What it does (in order):
@@ -18,9 +19,11 @@
 #        --rig <name> ->  <city>/city.toml   [rigs.imports.ast-lens] (under the
 #                         [[rigs]] entry whose name matches <name>)
 #      source is recorded relative to the city root (e.g. "packs/ast-lens").
-#   3. --town only: add "read-with-outline" to city.toml global_fragments
-#      (no gc-native command exists for this key, so a backed-up, surgical
-#      edit is used).
+#   3. --town only: add the pack's discipline fragments ("read-with-outline"
+#      and "symbolic-edits") to city.toml global_fragments — each added only if
+#      not already present (no gc-native command exists for this key, so a
+#      backed-up, surgical edit is used; the file is backed up once per run, and
+#      only when at least one fragment actually needs adding).
 #   4. Trigger re-projection with `gc reload` so the claude overlay's
 #      PreToolUse hook is materialized + merged into the projected settings.
 #   5. Verify: `gc lint`, the skill shows in `gc skill list`, the import is
@@ -41,7 +44,10 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${HO
 PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACK_NAME="ast-lens"          # import binding name + skill prefix
 IMPORT_NAME="ast-lens"
-FRAGMENT="read-with-outline"
+# Both discipline prompt-fragments this pack ships (read side + write side).
+# Each has a file at template-fragments/<name>.template.md and is wired into
+# city.toml global_fragments on --town scope.
+FRAGMENTS=("read-with-outline" "symbolic-edits")
 SKILL_QUALIFIED="${PACK_NAME}.read-with-outline"
 HOOK_MARKER="ast-lens/hooks/outline-on-read.sh"   # unique substring of our hook command
 
@@ -168,12 +174,12 @@ sys.exit(1)
 PY
 }
 
-fragment_present() { # 0 if FRAGMENT is already in global_fragments
-  grep -Eq "global_fragments[[:space:]]*=.*\"$FRAGMENT\"" "$CITY/city.toml"
+fragment_present() { # 0 if fragment $1 is already in global_fragments
+  grep -Eq "global_fragments[[:space:]]*=.*\"$1\"" "$CITY/city.toml"
 }
 
-edit_fragment() { # add|remove FRAGMENT in city.toml global_fragments (idempotent)
-  python3 - "$CITY/city.toml" "$1" "$FRAGMENT" <<'PY'
+edit_fragment() { # add|remove fragment $2 in city.toml global_fragments (idempotent)
+  python3 - "$CITY/city.toml" "$1" "$2" <<'PY'
 import sys, re
 path, action, frag = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(path).read()
@@ -299,20 +305,25 @@ else
   fi
 fi
 
-# ---- step 3: global fragment (town only) -----------------------------------
-step "3/5  prompt fragment (global_fragments)"
+# ---- step 3: global fragments (town only) ----------------------------------
+# Add EACH of the pack's discipline fragments to city.toml global_fragments,
+# skipping any already present (idempotent). The file is backed up at most once
+# per run, and only when at least one fragment actually needs adding — never
+# under --dry-run, and never when everything is already in place.
+step "3/5  prompt fragments (global_fragments)"
 if [ "$SCOPE" = "town" ]; then
-  if fragment_present; then
-    info "\"$FRAGMENT\" already in global_fragments — no-op"
-  else
-    backup_file "$CITY/city.toml"
-    if [ "$DRY_RUN" -eq 1 ]; then
-      info "[dry-run] add \"$FRAGMENT\" to global_fragments in $CITY/city.toml"
+  backed_up=0
+  for frag in "${FRAGMENTS[@]}"; do
+    if fragment_present "$frag"; then
+      info "\"$frag\" already in global_fragments — no-op"
+    elif [ "$DRY_RUN" -eq 1 ]; then
+      info "[dry-run] add \"$frag\" to global_fragments in $CITY/city.toml"
     else
-      edit_fragment add
-      info "added \"$FRAGMENT\" to global_fragments"
+      if [ "$backed_up" -eq 0 ]; then backup_file "$CITY/city.toml"; backed_up=1; fi
+      edit_fragment add "$frag"
+      info "added \"$frag\" to global_fragments"
     fi
-  fi
+  done
 else
   info "rig scope: global_fragments is city-wide and not touched"
   info "(the rig's agents still get the skill + PreToolUse hook from the import)"
@@ -374,9 +385,11 @@ else
   fi
 fi
 
-# 5d. fragment (town only)
+# 5d. fragments (town only) — every fragment in the list must be present
 if [ "$SCOPE" = "town" ]; then
-  if fragment_present; then info "fragment: in global_fragments"; else info "fragment: MISSING"; fail=1; fi
+  for frag in "${FRAGMENTS[@]}"; do
+    if fragment_present "$frag"; then info "fragment: \"$frag\" in global_fragments"; else info "fragment: \"$frag\" MISSING"; fail=1; fi
+  done
 fi
 
 # 5e. PreToolUse hook projected (best-effort — only present once a claude

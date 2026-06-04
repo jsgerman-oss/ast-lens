@@ -5,7 +5,9 @@
 #                [--purge] [--no-reload]
 #
 # Reverses, in order:
-#   1. Remove "read-with-outline" from city.toml global_fragments (--town only).
+#   1. Remove the pack's discipline fragments ("read-with-outline" and
+#      "symbolic-edits") from city.toml global_fragments (--town only); each is
+#      removed only if present (idempotent), and the file is backed up once.
 #   2. Remove the pack import. It is a DIRECT config entry (the gastown pattern,
 #      not `gc import add`/`remove`), so a surgical, backed-up edit drops it:
 #        --town       -> drops  <city>/pack.toml   [imports.ast-lens]
@@ -30,7 +32,9 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${HO
 PACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACK_NAME="ast-lens"
 IMPORT_NAME="ast-lens"
-FRAGMENT="read-with-outline"
+# Both discipline prompt-fragments this pack ships (read side + write side);
+# mirror of install.sh. Removed from city.toml global_fragments on --town scope.
+FRAGMENTS=("read-with-outline" "symbolic-edits")
 HOOK_MARKER="ast-lens/hooks/outline-on-read.sh"
 
 SCOPE=""; RIG=""; DRY_RUN=0; NO_RELOAD=0; PURGE=0; CITY=""
@@ -122,10 +126,10 @@ sys.exit(1)
 PY
 }
 
-fragment_present() { grep -Eq "global_fragments[[:space:]]*=.*\"$FRAGMENT\"" "$CITY/city.toml"; }
+fragment_present() { grep -Eq "global_fragments[[:space:]]*=.*\"$1\"" "$CITY/city.toml"; }
 
-edit_fragment_remove() {
-  python3 - "$CITY/city.toml" "$FRAGMENT" <<'PY'
+edit_fragment_remove() { # remove fragment $1 from city.toml global_fragments (idempotent)
+  python3 - "$CITY/city.toml" "$1" <<'PY'
 import sys, re
 path, frag = sys.argv[1], sys.argv[2]
 src = open(path).read()
@@ -239,16 +243,27 @@ strip_hook() {
   fi
 }
 
-# ---- step 1: fragment (town only) ------------------------------------------
-step "1/5  prompt fragment (global_fragments)"
+# ---- step 1: fragments (town only) -----------------------------------------
+# Remove EACH of the pack's discipline fragments from city.toml global_fragments,
+# skipping any already absent (idempotent). The file is backed up at most once
+# per run, and only when at least one fragment actually needs removing — never
+# under --dry-run, and never when none are present.
+step "1/5  prompt fragments (global_fragments)"
 if [ "$SCOPE" = "town" ]; then
-  if fragment_present; then
-    backup_file "$CITY/city.toml"
-    if [ "$DRY_RUN" -eq 1 ]; then info "[dry-run] remove \"$FRAGMENT\" from global_fragments"
-    else edit_fragment_remove; info "removed \"$FRAGMENT\" from global_fragments"; fi
-  else
-    info "\"$FRAGMENT\" not in global_fragments — no-op"
-  fi
+  backed_up=0
+  for frag in "${FRAGMENTS[@]}"; do
+    if fragment_present "$frag"; then
+      if [ "$DRY_RUN" -eq 1 ]; then
+        info "[dry-run] remove \"$frag\" from global_fragments"
+      else
+        if [ "$backed_up" -eq 0 ]; then backup_file "$CITY/city.toml"; backed_up=1; fi
+        edit_fragment_remove "$frag"
+        info "removed \"$frag\" from global_fragments"
+      fi
+    else
+      info "\"$frag\" not in global_fragments — no-op"
+    fi
+  done
 else
   info "rig scope: global_fragments not touched"
 fi
@@ -337,7 +352,9 @@ fi
 fail=0
 if import_present; then info "import: STILL REGISTERED ($IMPORT_NAME)"; fail=1; else info "import: removed"; fi
 if [ "$SCOPE" = "town" ]; then
-  if fragment_present; then info "fragment: STILL PRESENT"; fail=1; else info "fragment: removed"; fi
+  for frag in "${FRAGMENTS[@]}"; do
+    if fragment_present "$frag"; then info "fragment: \"$frag\" STILL PRESENT"; fail=1; else info "fragment: \"$frag\" removed"; fi
+  done
 fi
 leftover=0
 while IFS= read -r f; do grep -q "$HOOK_MARKER" "$f" 2>/dev/null && leftover=$((leftover+1)); done \
