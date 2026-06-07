@@ -6,7 +6,7 @@
 
 Agents **read** a compact AST outline instead of whole files (**~94–98% fewer tokens**),
 and **edit** through compile-gated symbolic ops that can't commit a change the gate can't
-prove safe. A clean-room implementation of
+prove safe. An implementation of
 *[The AST as LLM Lens](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)*.
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -213,10 +213,9 @@ correctness) — not byte-equality with any other tool.
 
 ## Research lineage
 
-ast-lens is a clean-room build of **_[The AST as LLM Lens: Outline-First Reading and
+ast-lens is a build of **_[The AST as LLM Lens: Outline-First Reading and
 Compile-Gated Symbolic Surgery](https://github.com/jsgerman-oss/research/tree/main/blackrim-ast-paper)_**,
-implemented from the paper's §5 algorithm and appendix — not ported from the reference
-`gt`. Both halves are here — outline-first reading **and** compile-gated symbolic surgery —
+implemented from the paper's §5 algorithm and appendix; Both halves are here — outline-first reading **and** compile-gated symbolic surgery —
 including the YAML pattern-DSL (§4.E) that the paper itself defers.
 
 ## License
